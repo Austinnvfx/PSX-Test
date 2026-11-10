@@ -1,0 +1,130 @@
+using UnityEngine;
+using UnityEngine.UI;
+
+/// <summary>
+/// Renders the camera into a tiny point-filtered render texture (e.g. 320x240) and stretches it
+/// to the screen for chunky PS1-style pixels, with an optional vignette. Only active in Play mode.
+/// </summary>
+[RequireComponent(typeof(Camera))]
+public class PSXRetroCamera : MonoBehaviour
+{
+    [Tooltip("Internal vertical resolution. PS1 games mostly ran at 240.")]
+    [Range(120, 720)] public int verticalResolution = 240;
+    public bool vignette = true;
+    [Range(0f, 1f)] public float vignetteStrength = 0.65f;
+
+    Camera cam;
+    RenderTexture rt;
+    GameObject uiRoot;
+    Camera displayCam;
+    RawImage screenImage;
+    RawImage vignetteImage;
+    Texture2D vignetteTex;
+    int lastW, lastH, lastRes;
+
+    void OnEnable()
+    {
+        if (!Application.isPlaying) return;
+        cam = GetComponent<Camera>();
+        BuildDisplay();
+        Rebuild();
+    }
+
+    void OnDisable()
+    {
+        if (cam) cam.targetTexture = null;
+        if (rt) { rt.Release(); Destroy(rt); }
+        if (uiRoot) Destroy(uiRoot);
+        if (displayCam) Destroy(displayCam.gameObject);
+        if (vignetteTex) Destroy(vignetteTex);
+    }
+
+    void Update()
+    {
+        if (!Application.isPlaying || !cam) return;
+        if (Screen.width != lastW || Screen.height != lastH || verticalResolution != lastRes)
+            Rebuild();
+        if (vignetteImage)
+        {
+            vignetteImage.enabled = vignette;
+            vignetteImage.color = new Color(1f, 1f, 1f, vignetteStrength);
+        }
+    }
+
+    void BuildDisplay()
+    {
+        // A camera that renders nothing but clears the backbuffer, so the screen is never undefined.
+        var camGo = new GameObject("PSX Display Camera");
+        displayCam = camGo.AddComponent<Camera>();
+        displayCam.cullingMask = 0;
+        displayCam.clearFlags = CameraClearFlags.SolidColor;
+        displayCam.backgroundColor = Color.black;
+        displayCam.depth = cam.depth + 100;
+
+        uiRoot = new GameObject("PSX Display", typeof(Canvas));
+        var canvas = uiRoot.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = -1000;
+
+        screenImage = CreateFullscreenImage("Screen", uiRoot.transform);
+
+        vignetteTex = BuildVignette(128);
+        vignetteImage = CreateFullscreenImage("Vignette", uiRoot.transform);
+        vignetteImage.texture = vignetteTex;
+    }
+
+    static RawImage CreateFullscreenImage(string name, Transform parent)
+    {
+        var go = new GameObject(name, typeof(RectTransform), typeof(RawImage));
+        go.transform.SetParent(parent, false);
+        var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        var img = go.GetComponent<RawImage>();
+        img.raycastTarget = false;
+        return img;
+    }
+
+    void Rebuild()
+    {
+        lastW = Screen.width;
+        lastH = Screen.height;
+        lastRes = verticalResolution;
+
+        int h = verticalResolution;
+        int w = Mathf.Max(1, Mathf.RoundToInt(h * (float)lastW / Mathf.Max(1, lastH)));
+
+        cam.targetTexture = null;
+        if (rt) { rt.Release(); Destroy(rt); }
+
+        rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32)
+        {
+            name = "PSX Low-Res Target",
+            filterMode = FilterMode.Point,
+            antiAliasing = 1,
+            useMipMap = false,
+        };
+        rt.Create();
+        cam.targetTexture = rt;
+        screenImage.texture = rt;
+    }
+
+    static Texture2D BuildVignette(int size)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[size * size];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float u = (x + 0.5f) / size * 2f - 1f;
+            float v = (y + 0.5f) / size * 2f - 1f;
+            float d = Mathf.Sqrt(u * u + v * v) / 1.414f;
+            float a = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.45f, 1.05f, d));
+            px[y * size + x] = new Color(0f, 0f, 0f, a);
+        }
+        tex.SetPixels(px);
+        tex.Apply();
+        return tex;
+    }
+}
