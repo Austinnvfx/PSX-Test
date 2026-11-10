@@ -47,8 +47,8 @@ public static class PSXSceneBuilder
         var fence    = Mat("Fence",    Tex("Fence", 32, FencePixel, alpha: true), 1, cutout: true, twoSided: true);
         var bark     = Mat("Bark",     Tex("Bark", 32, BarkPixel), 1);
         var lampGlow = Mat("LampGlow", Tex("White", 4, (x, y, s) => Color.white), 1);
-        lampGlow.SetColor("_EmissionColor", new Color(1f, 0.8f, 0.45f) * 0.9f);
-        lampGlow.SetColor("_BaseColor", new Color(0.4f, 0.35f, 0.2f));
+        lampGlow.SetColor("_EmissionColor", new Color(1f, 0.82f, 0.5f));
+        lampGlow.SetColor("_BaseColor", new Color(0.2f, 0.17f, 0.1f));
 
         // ---------- Scene ----------
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -93,7 +93,8 @@ public static class PSXSceneBuilder
             }
         }
 
-        // Lamp posts
+        // Lamp posts: real yellow light sources that glow through the fog. One of them is failing.
+        int lampIndex = 0;
         for (float z = -55f; z <= 55f; z += 14f)
         {
             foreach (int side in new[] { -1, 1 })
@@ -101,7 +102,11 @@ public static class PSXSceneBuilder
                 float x = side * 4.9f;
                 Box("Lamp Pole", env, new Vector3(x, 0.15f, z), new Vector3(0.18f, 4.6f, 0.18f), metal, 1f, 1f);
                 Box("Lamp Arm", env, new Vector3(x - side * 0.5f, 4.6f, z), new Vector3(1.1f, 0.12f, 0.14f), metal, 1f, 1f);
-                Box("Lamp Head", env, new Vector3(x - side * 0.95f, 4.45f, z), new Vector3(0.45f, 0.18f, 0.3f), lampGlow, 1f, 1f);
+                var head = Box("Lamp Head", env, new Vector3(x - side * 0.95f, 4.45f, z), new Vector3(0.45f, 0.18f, 0.3f), lampGlow, 1f, 1f);
+                var lamp = head.AddComponent<PSXLamp>();
+                lamp.glowRenderer = head.GetComponent<MeshRenderer>();
+                lamp.flicker = lampIndex == 9;
+                lampIndex++;
             }
         }
 
@@ -174,6 +179,17 @@ public static class PSXSceneBuilder
         camData.antialiasing = AntialiasingMode.None;
         camGo.AddComponent<AudioListener>();
         camGo.AddComponent<PSXRetroCamera>();
+
+        // Fog "sky" dome riding with the camera, so lamp halos show against open fog too.
+        var dome = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        dome.name = "Fog Dome";
+        Object.DestroyImmediate(dome.GetComponent<Collider>());
+        dome.transform.SetParent(camGo.transform, false);
+        dome.transform.localScale = Vector3.one * 110f; // radius 55, inside the 60m far plane
+        var domeRenderer = dome.GetComponent<MeshRenderer>();
+        domeRenderer.sharedMaterial = FogSkyMaterial();
+        domeRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        domeRenderer.receiveShadows = false;
 
         var flashGo = new GameObject("Flashlight");
         flashGo.transform.SetParent(pivot, false);
@@ -310,6 +326,7 @@ public static class PSXSceneBuilder
         mat.shader = Shader.Find("PSX/Lit");
         mat.SetTexture("_BaseMap", tex);
         mat.SetTextureScale("_BaseMap", Vector2.one * tiling);
+        mat.SetFloat("_AffineAmount", 0.35f); // a hint of PS1 texture swim without getting seasick
         if (cutout)
         {
             mat.SetFloat("_AlphaClip", 1);
@@ -317,6 +334,20 @@ public static class PSXSceneBuilder
             mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
         }
         if (twoSided) mat.SetFloat("_Cull", 0);
+        EditorUtility.SetDirty(mat);
+        return mat;
+    }
+
+    static Material FogSkyMaterial()
+    {
+        string path = $"{MatDir}/PSX_FogSky.mat";
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat == null)
+        {
+            mat = new Material(Shader.Find("PSX/FogSky"));
+            AssetDatabase.CreateAsset(mat, path);
+        }
+        mat.shader = Shader.Find("PSX/FogSky");
         EditorUtility.SetDirty(mat);
         return mat;
     }

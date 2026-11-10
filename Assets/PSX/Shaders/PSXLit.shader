@@ -77,7 +77,7 @@ Shader "PSX/Lit"
                 half4 albedo = SampleAlbedo(i);
                 float3 N = normalize(i.normalWS) * (isFront ? 1.0 : -1.0);
 
-                half3 light = _PSXAmbient.rgb + PSXFlashlight(i.positionWS, N);
+                half3 light = _PSXAmbient.rgb + PSXFlashlight(i.positionWS, N) + PSXLamps(i.positionWS, N);
                 half3 col = albedo.rgb * light + _EmissionColor.rgb;
 
                 col = PSXApplyFog(col, i.positionWS);

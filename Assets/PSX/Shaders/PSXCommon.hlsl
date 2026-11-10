@@ -29,6 +29,56 @@ float4 _PSXFlashDir;     // xyz direction, w = range
 float4 _PSXFlashCone;    // x cos(outer), y cos(inner), z intensity
 half4  _PSXFlashColor;
 
+// Street lamps, pushed by PSXManager (nearest to the camera first).
+#define PSX_MAX_LAMPS 16
+float4 _PSXLampPos[PSX_MAX_LAMPS];   // xyz position, w range
+float4 _PSXLampColor[PSX_MAX_LAMPS]; // rgb linear color * intensity, w halo strength
+float  _PSXLampCount;
+
+// Light a surface with the street lamps. Lamps throw light mostly downward, like a real streetlight.
+half3 PSXLamps(float3 positionWS, float3 normalWS)
+{
+    half3 sum = 0;
+    int count = (int)_PSXLampCount;
+    for (int i = 0; i < PSX_MAX_LAMPS; i++)
+    {
+        if (i >= count) break;
+        float3 toP = positionWS - _PSXLampPos[i].xyz;
+        float d = length(toP);
+        float3 L = toP / max(d, 0.0001);
+        float atten = saturate(1.0 - d / _PSXLampPos[i].w);
+        atten *= atten;
+        float ndl = saturate(dot(normalWS, -L)) * 0.85 + 0.15;
+        float down = lerp(0.2, 1.0, smoothstep(0.0, 0.8, -L.y));
+        sum += _PSXLampColor[i].rgb * atten * ndl * down;
+    }
+    return sum;
+}
+
+// Light scattered toward the camera by fog along the view ray, from each lamp.
+// Closed-form integral of 1/r^2 along the ray (what a volumetric ray-march approximates):
+// only the stretch of ray in front of the surface counts, so walls occlude the glow,
+// and fog between you and the lamp dims it, so halos get bigger and brighter as you approach.
+half3 PSXLampScatter(float3 viewDir, float dist)
+{
+    half3 sum = 0;
+    float density = _PSXFogParams.x;
+    int count = (int)_PSXLampCount;
+    for (int i = 0; i < PSX_MAX_LAMPS; i++)
+    {
+        if (i >= count) break;
+        float3 c = _PSXLampPos[i].xyz - _WorldSpaceCameraPos;
+        float tc = dot(c, viewDir);
+        float h = max(length(c - viewDir * tc), 0.12);
+        float inscatter = (atan((dist - tc) / h) - atan(-tc / h)) / h;
+        float lampDist = length(c);
+        float fd = lampDist * density * 0.6; // lamps punch through the fog a bit further than walls
+        float transmittance = exp(-fd * fd);
+        sum += _PSXLampColor[i].rgb * _PSXLampColor[i].w * inscatter * transmittance;
+    }
+    return sum * density;
+}
+
 // Snap a clip-space position to a low-res pixel grid (the PS1 had no sub-pixel precision).
 float4 PSXSnapVertex(float4 positionCS)
 {
@@ -85,7 +135,7 @@ half3 PSXApplyFog(half3 color, float3 positionWS)
         fogColor += _PSXFlashColor.rgb * glow * saturate(1.0 - dist / max(_PSXFlashDir.w, 0.01));
     }
 
-    return lerp(color, fogColor, saturate(fog));
+    return lerp(color, fogColor, saturate(fog)) + PSXLampScatter(viewDir, dist);
 }
 
 half3 PSXFlashlight(float3 positionWS, float3 normalWS)

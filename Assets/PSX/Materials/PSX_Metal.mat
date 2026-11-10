@@ -29,7 +29,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AffineAmount: 1
+    - _AffineAmount: 0.35
     - _AlphaClip: 0
     - _Cull: 2
     - _Cutoff: 0.5

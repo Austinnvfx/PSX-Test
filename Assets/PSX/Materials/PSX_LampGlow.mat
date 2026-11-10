@@ -29,13 +29,13 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AffineAmount: 1
+    - _AffineAmount: 0.35
     - _AlphaClip: 0
     - _Cull: 2
     - _Cutoff: 0.5
     - _SnapAmount: 1
     m_Colors:
-    - _BaseColor: {r: 0.4, g: 0.35, b: 0.2, a: 1}
-    - _EmissionColor: {r: 0.9, g: 0.71999997, b: 0.40499997, a: 0.9}
+    - _BaseColor: {r: 0.2, g: 0.17, b: 0.1, a: 1}
+    - _EmissionColor: {r: 1, g: 0.82, b: 0.5, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
