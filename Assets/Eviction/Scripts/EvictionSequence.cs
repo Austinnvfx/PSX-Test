@@ -119,6 +119,9 @@ public class EvictionSequence : MonoBehaviour
         "rubyland1\n" +
         "soundsforstory\n" +
         "\n" +
+        "S13 ENGINE SOUNDS\n" +
+        "Initial D Wiki\n" +
+        "\n" +
         "MADE WITH UNITY";
     [TextArea(4, 12)]
     public string thankYou =
