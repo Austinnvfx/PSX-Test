@@ -14,6 +14,7 @@ CBUFFER_START(UnityPerMaterial)
     half   _AffineAmount;
     half   _SnapAmount;
     half   _Cutoff;
+    half   _WetAmount;
 CBUFFER_END
 
 // ---- Globals pushed by PSXManager / PSXFlashlight ----
@@ -23,6 +24,7 @@ float4 _PSXFogParams;    // x density, y noise amount, z noise scale
 float4 _PSXFogWind;      // xyz wind direction * speed
 half4  _PSXAmbient;
 float4 _PSXColorParams;  // x color levels per channel, y dither strength
+float4 _PSXWeather;      // x wetness 0-1, y lightning flash 0-1 (pushed by PSXRain)
 
 float4 _PSXFlashPos;     // xyz position, w = on (1) / off (0)
 float4 _PSXFlashDir;     // xyz direction, w = range
@@ -30,7 +32,7 @@ float4 _PSXFlashCone;    // x cos(outer), y cos(inner), z intensity
 half4  _PSXFlashColor;
 
 // Street lamps, pushed by PSXManager (nearest to the camera first).
-#define PSX_MAX_LAMPS 16
+#define PSX_MAX_LAMPS 32
 float4 _PSXLampPos[PSX_MAX_LAMPS];   // xyz position, w range
 float4 _PSXLampColor[PSX_MAX_LAMPS]; // rgb linear color * intensity, w halo strength
 float  _PSXLampCount;
@@ -135,7 +137,70 @@ half3 PSXApplyFog(half3 color, float3 positionWS)
         fogColor += _PSXFlashColor.rgb * glow * saturate(1.0 - dist / max(_PSXFlashDir.w, 0.01));
     }
 
+    // Lightning lights up the whole sky of haze.
+    fogColor += _PSXWeather.y * half3(0.30, 0.33, 0.40);
+
     return lerp(color, fogColor, saturate(fog)) + PSXLampScatter(viewDir, dist);
+}
+
+// Lightning flash: a cold blue-white wash, strongest on surfaces facing the sky.
+half3 PSXLightning(float3 normalWS)
+{
+    return _PSXWeather.y * half3(0.55, 0.60, 0.75) * (0.35 + 0.65 * saturate(normalWS.y * 0.5 + 0.5));
+}
+
+// Rain-slick shine: street lamps (and the flashlight) mirrored as glints on wet surfaces.
+// Reflection streaks stretch toward the camera like on a real wet road. Patchy, like puddles.
+half3 PSXWetShine(float3 positionWS, float3 N, half wet)
+{
+    if (wet <= 0.001) return 0;
+
+    float n = PSXNoise(float3(positionWS.x, 0.0, positionWS.z) * 0.3);
+    wet *= lerp(0.15, 1.0, smoothstep(0.35, 0.75, n));
+
+    float3 V = normalize(_WorldSpaceCameraPos - positionWS);
+    float3 R = reflect(-V, N);
+
+    // Lamp reflections only on flat ground (a wet road is a rough mirror; walls aren't).
+    half floorMask = smoothstep(0.7, 0.95, N.y);
+    half3 sum = 0;
+    if (floorMask > 0.001)
+    {
+        // Real wet-road reflections are thin vertical streaks: each lamp's mirror image (flipped
+        // through the road) smeared toward the viewer. So: razor-thin side to side, long up and down,
+        // always lined up under the lamp it comes from.
+        float3 toP = -V;
+        float2 toPFlat = normalize(toP.xz + 1e-5);
+        int count = (int)_PSXLampCount;
+        for (int i = 0; i < PSX_MAX_LAMPS; i++)
+        {
+            if (i >= count) break;
+            float3 lamp = _PSXLampPos[i].xyz;
+            float3 mirrored = float3(lamp.x, 2.0 * positionWS.y - lamp.y, lamp.z);
+            float3 toM = normalize(mirrored - _WorldSpaceCameraPos);
+            float side = dot(toPFlat, normalize(toM.xz + 1e-5));
+            float thin = smoothstep(0.9990, 0.99993, side);              // about a degree wide
+            float tall = saturate(1.0 - abs(toP.y - toM.y) * 2.5);        // long smear toward you
+            float atten = saturate(1.0 - distance(lamp.xz, positionWS.xz) / (_PSXLampPos[i].w * 2.0));
+            sum += _PSXLampColor[i].rgb * thin * tall * tall * atten * 0.3;
+        }
+        sum *= floorMask;
+    }
+
+    if (_PSXFlashPos.w > 0.5)
+    {
+        float3 toF = _PSXFlashPos.xyz - positionWS;
+        float d = length(toF);
+        float3 L = toF / max(d, 0.0001);
+        float beam = smoothstep(_PSXFlashCone.x, _PSXFlashCone.y, dot(-L, _PSXFlashDir.xyz));
+        float atten = saturate(1.0 - d / max(_PSXFlashDir.w, 0.01));
+        sum += _PSXFlashColor.rgb * _PSXFlashCone.z * pow(saturate(dot(R, L)), 24.0) * beam * atten * 0.6;
+    }
+
+    // Lightning mirrored in puddles.
+    sum += _PSXWeather.y * half3(0.5, 0.55, 0.7) * pow(saturate(R.y), 4.0) * 0.5;
+
+    return sum * wet;
 }
 
 half3 PSXFlashlight(float3 positionWS, float3 normalWS)

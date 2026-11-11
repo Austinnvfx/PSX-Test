@@ -3,7 +3,8 @@ using UnityEngine;
 
 /// <summary>
 /// A street lamp for PSX/Lit materials: lights nearby surfaces and glows through the fog.
-/// PSXManager sends the 16 lamps nearest the camera to the shaders each frame.
+/// PSXManager sends the 32 lamps nearest the camera to the shaders each frame, fading out the farthest.
+/// Flickering lamps can play a looping buzz that swells during the flicker bursts.
 /// </summary>
 [ExecuteAlways]
 public class PSXLamp : MonoBehaviour
@@ -22,6 +23,15 @@ public class PSXLamp : MonoBehaviour
     public bool flicker;
     [Tooltip("Renderer whose emission dims with the flicker (the lamp head).")]
     public Renderer glowRenderer;
+    [Tooltip("Which material slot on the glow renderer is the bulb. -1 = all of them.")]
+    public int glowMaterialIndex = -1;
+
+    [Header("Buzz audio (flickering lamps)")]
+    [Tooltip("Looping 3D buzz. Quiet while the lamp is steady, swells while it flickers.")]
+    public AudioSource buzzSource;
+    [Range(0f, 1f)] public float buzzVolume = 0.8f;
+    [Tooltip("Buzz level between flicker bursts, as a fraction of Buzz Volume.")]
+    [Range(0f, 1f)] public float buzzIdle = 0.08f;
 
     public float CurrentIntensity { get; private set; }
     public Vector3 BulbPosition => transform.TransformPoint(bulbOffset);
@@ -38,40 +48,78 @@ public class PSXLamp : MonoBehaviour
         CurrentIntensity = intensity;
     }
 
+    void Start()
+    {
+        if (Application.isPlaying && buzzSource && buzzSource.clip)
+        {
+            buzzSource.volume = 0f;
+            if (!buzzSource.isPlaying) buzzSource.Play();
+            buzzSource.time = Random.Range(0f, buzzSource.clip.length * 0.95f); // nearby lamps don't buzz in sync
+        }
+    }
+
     void OnDisable()
     {
         All.Remove(this);
-        if (glowRenderer) glowRenderer.SetPropertyBlock(null);
+        if (glowRenderer)
+        {
+            var empty = new MaterialPropertyBlock();
+            if (glowMaterialIndex >= 0) glowRenderer.SetPropertyBlock(empty, glowMaterialIndex);
+            else glowRenderer.SetPropertyBlock(empty);
+        }
     }
 
     void Update()
     {
         float k = 1f;
+        bool inBurst = false;
         if (flicker && Application.isPlaying)
         {
             // Mostly on, with bursts of buzzing dropout like a failing ballast.
             float slow = Mathf.PerlinNoise(Time.time * 0.6f, seed);
             if (slow < 0.42f)
             {
+                inBurst = true;
                 float fast = Mathf.PerlinNoise(Time.time * 25f, seed + 7f);
                 k = fast > 0.5f ? Mathf.Lerp(0.5f, 1f, fast) : 0.04f;
             }
         }
         CurrentIntensity = intensity * k;
 
-        if (glowRenderer && Application.isPlaying)
+        if (buzzSource && Application.isPlaying)
         {
-            if (!hasBaseEmission && glowRenderer.sharedMaterial && glowRenderer.sharedMaterial.HasProperty("_EmissionColor"))
+            float target = flicker ? (inBurst ? Mathf.Lerp(0.55f, 1f, 1f - k) : buzzIdle) * buzzVolume : 0f;
+            float speed = target > buzzSource.volume ? 8f : 2f; // snap up, trail off
+            buzzSource.volume = Mathf.MoveTowards(buzzSource.volume, target, speed * Time.deltaTime);
+        }
+
+        if (glowRenderer && Application.isPlaying && flicker)
+        {
+            if (!hasBaseEmission)
             {
-                baseEmission = glowRenderer.sharedMaterial.GetColor("_EmissionColor");
-                hasBaseEmission = true;
+                var mats = glowRenderer.sharedMaterials;
+                var m = glowMaterialIndex >= 0 && glowMaterialIndex < mats.Length ? mats[glowMaterialIndex] : glowRenderer.sharedMaterial;
+                if (m && m.HasProperty("_EmissionColor"))
+                {
+                    baseEmission = m.GetColor("_EmissionColor");
+                    hasBaseEmission = true;
+                }
             }
-            if (hasBaseEmission && flicker)
+            if (hasBaseEmission)
             {
                 mpb ??= new MaterialPropertyBlock();
-                glowRenderer.GetPropertyBlock(mpb);
-                mpb.SetColor("_EmissionColor", baseEmission * k);
-                glowRenderer.SetPropertyBlock(mpb);
+                if (glowMaterialIndex >= 0)
+                {
+                    glowRenderer.GetPropertyBlock(mpb, glowMaterialIndex);
+                    mpb.SetColor("_EmissionColor", baseEmission * k);
+                    glowRenderer.SetPropertyBlock(mpb, glowMaterialIndex);
+                }
+                else
+                {
+                    glowRenderer.GetPropertyBlock(mpb);
+                    mpb.SetColor("_EmissionColor", baseEmission * k);
+                    glowRenderer.SetPropertyBlock(mpb);
+                }
             }
         }
     }

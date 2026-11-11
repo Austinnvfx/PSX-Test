@@ -107,3 +107,10 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Versatile Studio "Demo City" (Unity Asset Store) - licensed for use in builds, not for redistribution
+/[Aa]ssets/Versatile Studio Assets/
+/[Aa]ssets/Versatile Studio Assets.meta
+# PSX copies of the pack textures (made by PSX > Build City Scene) - same license as the pack
+/[Aa]ssets/PSX/City/Textures/
+/[Aa]ssets/PSX/City/Textures.meta

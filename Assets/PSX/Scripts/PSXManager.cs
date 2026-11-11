@@ -33,7 +33,7 @@ public class PSXManager : MonoBehaviour
     void OnValidate() => Apply();
     void LateUpdate() => Apply(); // after the player has moved and lamps have flickered
 
-    void Apply()
+    public void Apply()
     {
         Shader.SetGlobalColor("_PSXFogColor", fogColor);
         Shader.SetGlobalVector("_PSXFogParams", new Vector4(fogDensity, fogNoise, fogNoiseScale, 0f));
@@ -57,7 +57,7 @@ public class PSXManager : MonoBehaviour
         PushLamps(mainCam ? mainCam.transform.position : transform.position);
     }
 
-    const int MaxLamps = 16; // must match PSX_MAX_LAMPS in PSXCommon.hlsl
+    const int MaxLamps = 32; // must match PSX_MAX_LAMPS in PSXCommon.hlsl
     static readonly Vector4[] lampPos = new Vector4[MaxLamps];
     static readonly Vector4[] lampCol = new Vector4[MaxLamps];
     static readonly System.Collections.Generic.List<PSXLamp> sorted = new System.Collections.Generic.List<PSXLamp>();
@@ -70,13 +70,23 @@ public class PSXManager : MonoBehaviour
         sorted.Sort((a, b) => (a.BulbPosition - camPos).sqrMagnitude.CompareTo((b.BulbPosition - camPos).sqrMagnitude));
 
         int count = Mathf.Min(MaxLamps, sorted.Count);
+
+        // Only the nearest lamps fit in the shader. Fade each one out as it nears the cut-off distance
+        // (where the next-nearest lamp sits), so lamps swapping in and out never pop.
+        float cutoff = sorted.Count > MaxLamps
+            ? Vector3.Distance(sorted[MaxLamps].BulbPosition, camPos)
+            : float.MaxValue;
+        float fadeStart = cutoff * 0.7f;
+
         for (int i = 0; i < MaxLamps; i++)
         {
             if (i < count)
             {
                 var l = sorted[i];
                 Vector3 p = l.BulbPosition;
-                Color c = l.color.linear * l.CurrentIntensity;
+                float d = Vector3.Distance(p, camPos);
+                float fade = cutoff < float.MaxValue ? 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(fadeStart, cutoff, d)) : 1f;
+                Color c = l.color.linear * l.CurrentIntensity * fade;
                 lampPos[i] = new Vector4(p.x, p.y, p.z, Mathf.Max(0.01f, l.range));
                 lampCol[i] = new Vector4(c.r, c.g, c.b, l.haloStrength);
             }

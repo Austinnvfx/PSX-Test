@@ -25,7 +25,17 @@ public class PSXPlayer : MonoBehaviour
     public float bobAmount = 0.035f;
     public float bobFrequency = 1.9f;
 
+    [Header("Footsteps (one per head-bob dip)")]
+    public AudioSource footstepSource;
+    public AudioClip[] dryFootsteps;
+    [Tooltip("Same steps, wet. Blended in by PSXRain wetness.")]
+    public AudioClip[] wetFootsteps;
+    [Range(0f, 1f)] public float walkStepVolume = 0.25f;
+    [Range(0f, 1f)] public float runStepVolume = 0.4f;
+    public Vector2 stepPitch = new Vector2(0.92f, 1.06f);
+
     CharacterController controller;
+    int lastStepClip = -1;
     Vector3 velocity;
     float yaw, pitch, bobPhase;
     Vector3 pivotRestPos;
@@ -92,10 +102,32 @@ public class PSXPlayer : MonoBehaviour
         if (cameraPivot)
         {
             float moving = horiz.magnitude / Mathf.Max(0.01f, runSpeed);
+            // The camera dips at phase 3π/2 (+2πk): that's a foot landing.
+            float stepBefore = Mathf.Floor((bobPhase - Mathf.PI * 1.5f) / (Mathf.PI * 2f));
             bobPhase += Time.deltaTime * bobFrequency * Mathf.PI * 2f * (0.6f + moving);
+            float stepAfter = Mathf.Floor((bobPhase - Mathf.PI * 1.5f) / (Mathf.PI * 2f));
+            if (stepAfter != stepBefore && controller.isGrounded && moving > 0.12f)
+                PlayFootstep(Mathf.InverseLerp(walkSpeed, runSpeed, horiz.magnitude));
             Vector3 bob = new Vector3(Mathf.Cos(bobPhase * 0.5f) * 0.5f, Mathf.Sin(bobPhase), 0f) * bobAmount * Mathf.Clamp01(moving * 2f);
             cameraPivot.localPosition = Vector3.Lerp(cameraPivot.localPosition, pivotRestPos + bob, 10f * Time.deltaTime);
         }
+    }
+
+    void PlayFootstep(float runAmount)
+    {
+        if (!footstepSource || dryFootsteps == null || dryFootsteps.Length == 0) return;
+
+        int n = dryFootsteps.Length;
+        int i = Random.Range(0, n);
+        if (n > 1 && i == lastStepClip) i = (i + 1 + Random.Range(0, n - 1)) % n; // never the same twice
+        lastStepClip = i;
+
+        float volume = Mathf.Lerp(walkStepVolume, runStepVolume, runAmount) * Random.Range(0.85f, 1f);
+        float wet = wetFootsteps != null && i < wetFootsteps.Length && wetFootsteps[i] ? PSXRain.Wetness : 0f;
+
+        footstepSource.pitch = Random.Range(stepPitch.x, stepPitch.y);
+        if (wet < 0.999f) footstepSource.PlayOneShot(dryFootsteps[i], volume * (1f - wet));
+        if (wet > 0.001f) footstepSource.PlayOneShot(wetFootsteps[i], volume * wet);
     }
 
     static void LockCursor(bool locked)
