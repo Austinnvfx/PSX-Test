@@ -14,6 +14,8 @@ public class PSXRain : MonoBehaviour
     public static float LastFlashTime { get; private set; } = -999f;
     /// <summary>0-1: how much to turn the rain down for music (set by PSXAudioDirector).</summary>
     public static float MusicDuck { get; set; }
+    /// <summary>0-1: how much the player is under a roof (1 = indoors). Eased, so it never snaps.</summary>
+    public static float Cover { get; private set; }
 
     [Tooltip("0 = drizzle, 1 = downpour. Drives drops, splashes, haze, wetness and rain volume.")]
     [Range(0f, 1f)] public float intensity = 0.5f;
@@ -73,7 +75,7 @@ public class PSXRain : MonoBehaviour
     /// <summary>Is there a roof over the player? Checked a few times a second, eased so it never snaps.</summary>
     void UpdateCover()
     {
-        if (!muffleUnderCover || !follow) { cover = 0f; return; }
+        if (!muffleUnderCover || !follow) { cover = 0f; Cover = 0f; return; }
         if (rainSource && !lowPass)
         {
             lowPass = rainSource.GetComponent<AudioLowPassFilter>();
@@ -87,6 +89,7 @@ public class PSXRain : MonoBehaviour
             coverTarget = roof ? 1f : 0f;
         }
         cover = Mathf.MoveTowards(cover, coverTarget, Time.deltaTime * 1.5f);
+        Cover = cover;
     }
     float prevClipTime = -1f;
     float flashStart = -999f, flashStrength;
@@ -101,13 +104,15 @@ public class PSXRain : MonoBehaviour
         if (drops) Destroy(drops.gameObject);
         if (splashes) Destroy(splashes.gameObject);
         Wetness = 0f;
+        Cover = 0f;
         Shader.SetGlobalVector("_PSXWeather", Vector4.zero);
     }
 
     void Update()
     {
         Wetness = Mathf.Lerp(minWetness, 1f, intensity);
-        float flash = Application.isPlaying ? UpdateLightning() : 0f;
+        // Indoors, lightning only reaches in faintly through the windows.
+        float flash = Application.isPlaying ? UpdateLightning() * Mathf.Lerp(1f, 0.25f, cover) : 0f;
         Shader.SetGlobalVector("_PSXWeather", new Vector4(Wetness, flash, 0f, 0f));
 
         if (!Application.isPlaying) return;
@@ -207,13 +212,27 @@ public class PSXRain : MonoBehaviour
             collision.enabled = true;
             collision.type = ParticleSystemCollisionType.World;
             collision.mode = ParticleSystemCollisionMode.Collision3D;
-            collision.quality = ParticleSystemCollisionQuality.Low; // cached voxel hits: cheap for thousands of drops
+            collision.quality = ParticleSystemCollisionQuality.Medium; // cached voxel hits, but fewer slip through than Low
             collision.voxelSize = 0.5f;
             collision.collidesWith = ~(1 << 2); // not the player (Ignore Raycast layer)
             collision.lifetimeLoss = 1f;
             collision.radiusScale = 0.5f;
             collision.enableDynamicColliders = false;
             collision.sendCollisionMessages = false;
+
+            // Indoor spaces: any drop that gets inside dies on the spot.
+            var zones = FindObjectsByType<PSXNoRainZone>(FindObjectsSortMode.None);
+            if (zones.Length > 0)
+            {
+                var trig = drops.trigger;
+                trig.enabled = true;
+                trig.inside = ParticleSystemOverlapAction.Kill;
+                trig.enter = ParticleSystemOverlapAction.Kill;
+                trig.outside = ParticleSystemOverlapAction.Ignore;
+                trig.exit = ParticleSystemOverlapAction.Ignore;
+                trig.colliderQueryMode = ParticleSystemColliderQueryMode.Disabled;
+                for (int i = 0; i < zones.Length; i++) trig.SetCollider(i, zones[i].GetComponent<Collider>());
+            }
 
             var r = drops.GetComponent<ParticleSystemRenderer>();
             r.renderMode = ParticleSystemRenderMode.Stretch;

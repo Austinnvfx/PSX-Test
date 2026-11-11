@@ -34,6 +34,16 @@ public class PSXPlayer : MonoBehaviour
     [Range(0f, 1f)] public float runStepVolume = 0.4f;
     public Vector2 stepPitch = new Vector2(0.92f, 1.06f);
 
+    /// <summary>While true the player can't move or look (phone typing, reading, cutscenes). Gravity still applies.</summary>
+    public static bool InputLocked;
+    /// <summary>Settings: mouse sensitivity multiplier and inverted look.</summary>
+    public static float SensitivityScale = 1f;
+    public static bool InvertY;
+    /// <summary>While true a menu owns the mouse: no cursor grabbing, Esc is left to the menu.</summary>
+    public static bool CursorFree;
+    /// <summary>Footsteps are quieter indoors (carpet, smaller room).</summary>
+    [Range(0f, 1f)] public float indoorStepVolume = 0.7f;
+
     CharacterController controller;
     int lastStepClip = -1;
     Vector3 velocity;
@@ -47,7 +57,33 @@ public class PSXPlayer : MonoBehaviour
         if (cameraPivot) pivotRestPos = cameraPivot.localPosition;
     }
 
-    void Start() => LockCursor(true);
+    /// <summary>Set when a pause menu handles Esc (so Esc doesn't just free the mouse).</summary>
+    public static bool EscapeOpensMenu;
+
+    void Start() { if (!CursorFree) LockCursor(true); }
+
+    /// <summary>Grab or free the mouse (menus).</summary>
+    public static void SetCursorLocked(bool locked) => LockCursor(locked);
+
+    void OnDestroy() { InputLocked = false; CursorFree = false; }
+
+    /// <summary>Move the player instantly (during a fade), facing <paramref name="forward"/>.</summary>
+    public void Teleport(Vector3 position, Vector3 forward)
+    {
+        if (!controller) controller = GetComponent<CharacterController>();
+        controller.enabled = false;
+        transform.position = position;
+        forward.y = 0f;
+        if (forward.sqrMagnitude > 0.001f)
+        {
+            transform.rotation = Quaternion.LookRotation(forward.normalized);
+            yaw = transform.eulerAngles.y;
+        }
+        pitch = 0f;
+        if (cameraPivot) cameraPivot.localRotation = Quaternion.identity;
+        velocity = Vector3.zero;
+        controller.enabled = true;
+    }
 
     void Update()
     {
@@ -55,18 +91,22 @@ public class PSXPlayer : MonoBehaviour
         var mouse = Mouse.current;
         var pad = Gamepad.current;
 
-        if (kb != null && kb.escapeKey.wasPressedThisFrame) LockCursor(false);
-        if (mouse != null && mouse.leftButton.wasPressedThisFrame) LockCursor(true);
+        if (CursorFree) { if (Cursor.lockState != CursorLockMode.None) LockCursor(false); }
+        else
+        {
+            if (kb != null && kb.escapeKey.wasPressedThisFrame && !InputLocked && !EscapeOpensMenu) LockCursor(false);
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame) LockCursor(true);
+        }
 
         // ---- Look ----
         Vector2 look = Vector2.zero;
-        if (mouse != null && Cursor.lockState == CursorLockMode.Locked)
-            look += mouse.delta.ReadValue() * mouseSensitivity;
-        if (pad != null)
-            look += pad.rightStick.ReadValue() * stickSensitivity * Time.deltaTime;
+        if (mouse != null && Cursor.lockState == CursorLockMode.Locked && !InputLocked)
+            look += mouse.delta.ReadValue() * mouseSensitivity * SensitivityScale;
+        if (pad != null && !InputLocked)
+            look += pad.rightStick.ReadValue() * stickSensitivity * SensitivityScale * Time.deltaTime;
 
         yaw += look.x;
-        pitch = Mathf.Clamp(pitch - look.y, -maxPitch, maxPitch);
+        pitch = Mathf.Clamp(pitch - look.y * (InvertY ? -1f : 1f), -maxPitch, maxPitch);
         transform.rotation = Quaternion.Euler(0f, yaw, 0f);
         if (cameraPivot) cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
 
@@ -87,6 +127,7 @@ public class PSXPlayer : MonoBehaviour
             run |= pad.leftStickButton.isPressed;
         }
         move = Vector2.ClampMagnitude(move, 1f);
+        if (InputLocked) { move = Vector2.zero; run = false; }
 
         float speed = run ? runSpeed : walkSpeed;
         Vector3 target = (transform.right * move.x + transform.forward * move.y) * speed;
@@ -122,8 +163,10 @@ public class PSXPlayer : MonoBehaviour
         if (n > 1 && i == lastStepClip) i = (i + 1 + Random.Range(0, n - 1)) % n; // never the same twice
         lastStepClip = i;
 
-        float volume = Mathf.Lerp(walkStepVolume, runStepVolume, runAmount) * Random.Range(0.85f, 1f);
-        float wet = wetFootsteps != null && i < wetFootsteps.Length && wetFootsteps[i] ? PSXRain.Wetness : 0f;
+        float volume = Mathf.Lerp(walkStepVolume, runStepVolume, runAmount) * Random.Range(0.85f, 1f)
+                     * Mathf.Lerp(1f, indoorStepVolume, PSXRain.Cover);
+        // Wet outside, dry under a roof.
+        float wet = wetFootsteps != null && i < wetFootsteps.Length && wetFootsteps[i] ? PSXRain.Wetness * (1f - PSXRain.Cover) : 0f;
 
         footstepSource.pitch = Random.Range(stepPitch.x, stepPitch.y);
         if (wet < 0.999f) footstepSource.PlayOneShot(dryFootsteps[i], volume * (1f - wet));

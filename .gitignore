@@ -114,3 +114,16 @@ InitTestScene*.unity*
 # PSX copies of the pack textures (made by PSX > Build City Scene) - same license as the pack
 /[Aa]ssets/PSX/City/Textures/
 /[Aa]ssets/PSX/City/Textures.meta
+
+# Asset Store packs used by EVICTION (licensed, not redistributable; re-download from My Assets)
+/[Aa]ssets/nappin/
+/[Aa]ssets/nappin.meta
+/[Aa]ssets/Polyeler/
+/[Aa]ssets/Polyeler.meta
+/[Aa]ssets/Awbmecreations/
+/[Aa]ssets/Awbmecreations.meta
+/[Aa]ssets/Arabic Neoclassical/
+/[Aa]ssets/Arabic Neoclassical.meta
+# PSX copies of their textures (derived from the packs)
+/[Aa]ssets/Eviction/Textures/
+/[Aa]ssets/Eviction/Textures.meta

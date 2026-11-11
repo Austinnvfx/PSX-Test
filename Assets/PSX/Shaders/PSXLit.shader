@@ -15,6 +15,8 @@ Shader "PSX/Lit"
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend ("Src Blend (SrcAlpha for glass)", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Dst Blend (OneMinusSrcAlpha for glass)", Float) = 0
         [Toggle] _ZWrite ("ZWrite (off for glass)", Float) = 1
+        _OffsetFactor ("Depth Bias Factor (-1 for decals)", Float) = 0
+        _OffsetUnits ("Depth Bias Units (-1 for decals)", Float) = 0
     }
 
     SubShader
@@ -59,7 +61,7 @@ Shader "PSX/Lit"
 
         float2 PSXUV(Varyings i)
         {
-            return lerp(i.uvPersp, i.uvAffine, _AffineAmount);
+            return lerp(i.uvPersp, i.uvAffine, _AffineAmount * (1.0 - _PSXNoWobble));
         }
 
         half4 SampleAlbedo(Varyings i)
@@ -79,6 +81,7 @@ Shader "PSX/Lit"
             Cull [_Cull]
             Blend [_SrcBlend] [_DstBlend]
             ZWrite [_ZWrite]
+            Offset [_OffsetFactor], [_OffsetUnits]
 
             HLSLPROGRAM
             #pragma vertex vert
@@ -113,6 +116,7 @@ Shader "PSX/Lit"
             ZWrite On
             ColorMask R
             Cull [_Cull]
+            Offset [_OffsetFactor], [_OffsetUnits]
 
             HLSLPROGRAM
             #pragma vertex vert

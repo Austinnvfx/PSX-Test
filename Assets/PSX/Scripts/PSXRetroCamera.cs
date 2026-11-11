@@ -19,6 +19,8 @@ public class PSXRetroCamera : MonoBehaviour
     Camera displayCam;
     RawImage screenImage;
     RawImage vignetteImage;
+    readonly RawImage[] tearStrips = new RawImage[6];
+    float tearUntil, nextTear;
     Texture2D vignetteTex;
     int lastW, lastH, lastRes;
 
@@ -44,6 +46,7 @@ public class PSXRetroCamera : MonoBehaviour
         if (!Application.isPlaying || !cam) return;
         if (Screen.width != lastW || Screen.height != lastH || verticalResolution != lastRes)
             Rebuild();
+        UpdateTear();
         if (vignetteImage)
         {
             vignetteImage.enabled = vignette;
@@ -67,6 +70,12 @@ public class PSXRetroCamera : MonoBehaviour
         canvas.sortingOrder = -1000;
 
         screenImage = CreateFullscreenImage("Screen", uiRoot.transform);
+
+        for (int i = 0; i < tearStrips.Length; i++)
+        {
+            tearStrips[i] = CreateFullscreenImage("Tear " + i, uiRoot.transform);
+            tearStrips[i].enabled = false;
+        }
 
         vignetteTex = BuildVignette(128);
         vignetteImage = CreateFullscreenImage("Vignette", uiRoot.transform);
@@ -108,6 +117,28 @@ public class PSXRetroCamera : MonoBehaviour
         rt.Create();
         cam.targetTexture = rt;
         screenImage.texture = rt;
+        foreach (var s in tearStrips) if (s) s.texture = rt;
+    }
+
+    /// <summary>Tear the picture for a moment: horizontal bands slide sideways, like a bad signal.</summary>
+    public void Tear(float seconds) { tearUntil = Time.unscaledTime + seconds; nextTear = 0f; }
+
+    void UpdateTear()
+    {
+        bool on = Time.unscaledTime < tearUntil;
+        if (!on) { foreach (var s in tearStrips) if (s) s.enabled = false; return; }
+        if (Time.unscaledTime < nextTear) return;
+        nextTear = Time.unscaledTime + 0.045f;
+        foreach (var s in tearStrips)
+        {
+            if (!s) continue;
+            s.enabled = Random.value < 0.75f;
+            float y0 = Random.value * 0.95f, h = Random.Range(0.015f, 0.12f), dx = Random.Range(-0.08f, 0.08f);
+            var rt = s.rectTransform;
+            rt.anchorMin = new Vector2(0f, y0);
+            rt.anchorMax = new Vector2(1f, Mathf.Min(1f, y0 + h));
+            s.uvRect = new Rect(dx, y0, 1f, h);
+        }
     }
 
     static Texture2D BuildVignette(int size)

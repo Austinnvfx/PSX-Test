@@ -25,6 +25,7 @@ float4 _PSXFogWind;      // xyz wind direction * speed
 half4  _PSXAmbient;
 float4 _PSXColorParams;  // x color levels per channel, y dither strength
 float4 _PSXWeather;      // x wetness 0-1, y lightning flash 0-1 (pushed by PSXRain)
+float  _PSXNoWobble;     // 1 = PS1 wobble (vertex snap + texture warp) switched off in Settings
 
 float4 _PSXFlashPos;     // xyz position, w = on (1) / off (0)
 float4 _PSXFlashDir;     // xyz direction, w = range
@@ -89,7 +90,7 @@ float4 PSXSnapVertex(float4 positionCS)
     float4 snapped = positionCS;
     if (positionCS.w > 0.0001)
         snapped.xy = round(positionCS.xy / positionCS.w * grid) / grid * positionCS.w;
-    positionCS.xy = lerp(positionCS.xy, snapped.xy, _SnapAmount);
+    positionCS.xy = lerp(positionCS.xy, snapped.xy, _SnapAmount * (1.0 - _PSXNoWobble));
     return positionCS;
 }
 

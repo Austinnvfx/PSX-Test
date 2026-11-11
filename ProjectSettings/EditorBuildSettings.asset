@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/Eviction_Intro.unity
+    guid: 77402e607c34e934d910785a58d5bec3
+  - enabled: 1
     path: Assets/Scenes/PSXCity.unity
     guid: daebf7e860beb7440aaba5eca0efb344
   m_configObjects:
